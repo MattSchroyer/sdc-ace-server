@@ -28,5 +28,7 @@ if [[ "${PUID}" -ne 0 && "$(id -u)" -eq 0 ]]; then
 fi
 
 mkdir -p /data
+mkdir -p "${SERVER_RESULTS_PATH:-/data/results}"
+
 echo "Starting AC EVO dashboard (container main process) on port ${DASHBOARD_PORT:-8090} ..."
 exec python3 -m dashboard
