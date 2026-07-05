@@ -28,7 +28,13 @@ if [[ "${PUID}" -ne 0 && "$(id -u)" -eq 0 ]]; then
 fi
 
 mkdir -p /data
+
+# Create results directory and start results uploader if configured
 mkdir -p "${SERVER_RESULTS_PATH:-/data/results}"
+if [[ -n "${SERVER_RESULTS_POST_URL:-}" ]]; then
+  echo "Starting results uploader in background -> ${SERVER_RESULTS_POST_URL} ..."
+  python3 /opt/acevo/scripts/results_upload.py &
+fi
 
 echo "Starting AC EVO dashboard (container main process) on port ${DASHBOARD_PORT:-8090} ..."
 exec python3 -m dashboard
