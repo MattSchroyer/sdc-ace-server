@@ -2,48 +2,41 @@
 """Monitor /data/results and send new JSON files to a webhook endpoint via POST request.
 
 Polls the results directory every 5 seconds, reads new JSON files, and POST them to the
-configured SERVER_RESULTS_POST_URL. Tracks uploaded files locally to avoid re-uploads after
-container restarts. Logs all errors to stdout without skipping subsequent files.
+configured SERVER_RESULTS_POST_URL. Moves successfully uploaded files into a sibling
+results_sent directory so they are not re-uploaded. Logs all errors to stderr without
+skipping subsequent files.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 
 POLL_INTERVAL_SECONDS = 5
 RESULTS_DIR = Path(os.environ.get("SERVER_RESULTS_PATH", "/data/results"))
+SENT_RESULTS_DIR = RESULTS_DIR.parent / "results_sent"
 SERVER_RESULTS_POST_URL = os.environ.get("SERVER_RESULTS_POST_URL", "").strip()
-SENT_RESULTS_TRACKER = Path.home() / ".acevo_results_sent.json"
 
 
-def _load_sent_results() -> set[str]:
-    """Load the set of already-uploaded result filenames from tracker file."""
-    if not SENT_RESULTS_TRACKER.exists():
-        return set()
+def _archive_result(file_path: Path) -> bool:
+    """Move a successfully uploaded result file into the sent-results directory."""
     try:
-        with open(SENT_RESULTS_TRACKER, "r") as f:
-            data = json.load(f)
-            return set(data.get("sent", []))
+        SENT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        archive_path = SENT_RESULTS_DIR / file_path.name
+        if archive_path.exists():
+            archive_path.unlink()
+        shutil.move(str(file_path), str(archive_path))
+        return True
     except Exception as e:
-        print(f"WARNING: Failed to load sent results tracker: {e}", file=sys.stderr)
-        return set()
-
-
-def _save_sent_results(sent: set[str]) -> None:
-    """Save the set of uploaded result filenames to tracker file."""
-    try:
-        with open(SENT_RESULTS_TRACKER, "w") as f:
-            json.dump({"sent": sorted(sent)}, f)
-    except Exception as e:
-        print(f"WARNING: Failed to save sent results tracker: {e}", file=sys.stderr)
+        print(f"WARNING: Failed to archive sent result {file_path.name}: {e}", file=sys.stderr)
+        return False
 
 
 def _send_result(url: str, file_path: Path) -> bool:
@@ -139,9 +132,8 @@ def _poll_results_directory(webhook_url: str) -> None:
     Args:
         webhook_url: The POST endpoint URL to send results to.
     """
-    sent_results = _load_sent_results()
     print(
-        f"Results uploader started: monitoring {RESULTS_DIR} -> {webhook_url}",
+        f"Results uploader started: monitoring {RESULTS_DIR} -> {webhook_url} (archived to {SENT_RESULTS_DIR})",
         file=sys.stderr,
     )
 
@@ -154,16 +146,9 @@ def _poll_results_directory(webhook_url: str) -> None:
             json_files = sorted(RESULTS_DIR.glob("*.json"))
 
             for file_path in json_files:
-                file_name = file_path.name
-
-                # Skip already-uploaded files
-                if file_name in sent_results:
-                    continue
-
                 # Try to send; log errors but continue
                 if _send_result(webhook_url, file_path):
-                    sent_results.add(file_name)
-                    _save_sent_results(sent_results)
+                    _archive_result(file_path)
 
         except Exception as e:
             print(
