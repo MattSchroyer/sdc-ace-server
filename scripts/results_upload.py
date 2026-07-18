@@ -23,14 +23,15 @@ from pathlib import Path
 POLL_INTERVAL_SECONDS = 5
 RESULTS_DIR = Path(os.environ.get("SERVER_RESULTS_PATH", "/data/results"))
 SENT_RESULTS_DIR = RESULTS_DIR.parent / "results_sent"
+FAILED_RESULTS_DIR = RESULTS_DIR.parent / "results_failed"
 SERVER_RESULTS_POST_URL = os.environ.get("SERVER_RESULTS_POST_URL", "").strip()
 
 
-def _archive_result(file_path: Path) -> bool:
-    """Move a successfully uploaded result file into the sent-results directory."""
+def _move_result_to_directory(file_path: Path, destination_dir: Path, label: str, action_phrase: str) -> bool:
+    """Move a result file into a destination directory and log the outcome."""
     try:
-        SENT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        archive_path = SENT_RESULTS_DIR / file_path.name
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = destination_dir / file_path.name
 
         if archive_path.exists():
             if archive_path.is_dir():
@@ -38,11 +39,11 @@ def _archive_result(file_path: Path) -> bool:
             archive_path.unlink()
 
         os.replace(file_path, archive_path)
-        print(f"Archived {file_path.name} -> {archive_path}", file=sys.stderr)
+        print(f"{label}: {file_path.name} -> {archive_path}", file=sys.stderr)
         return True
     except FileNotFoundError:
         print(
-            f"WARNING: Failed to archive sent result {file_path.name}: source file disappeared before move",
+            f"WARNING: Failed to {action_phrase} {file_path.name}: source file disappeared before move",
             file=sys.stderr,
         )
         return False
@@ -51,26 +52,36 @@ def _archive_result(file_path: Path) -> bool:
             try:
                 shutil.copy2(file_path, archive_path)
                 file_path.unlink()
-                print(f"Archived {file_path.name} -> {archive_path} (copied across filesystems)", file=sys.stderr)
+                print(f"{label}: {file_path.name} -> {archive_path} (copied across filesystems)", file=sys.stderr)
                 return True
             except OSError as copy_error:
                 print(
-                    f"WARNING: Failed to archive sent result {file_path.name} across filesystems: {copy_error}",
+                    f"WARNING: Failed to {action_phrase} {file_path.name} across filesystems: {copy_error}",
                     file=sys.stderr,
                 )
                 return False
 
         print(
-            f"WARNING: Failed to archive sent result {file_path.name} -> {archive_path}: {e}",
+            f"WARNING: Failed to {action_phrase} {file_path.name} -> {archive_path}: {e}",
             file=sys.stderr,
         )
         return False
     except Exception as e:
         print(
-            f"WARNING: Failed to archive sent result {file_path.name} -> {archive_path}: {e}",
+            f"WARNING: Failed to {action_phrase} {file_path.name} -> {archive_path}: {e}",
             file=sys.stderr,
         )
         return False
+
+
+def _archive_result(file_path: Path) -> bool:
+    """Move a successfully uploaded result file into the sent-results directory."""
+    return _move_result_to_directory(file_path, SENT_RESULTS_DIR, "Archived", "archive sent result")
+
+
+def _move_failed_result(file_path: Path) -> bool:
+    """Move a failed upload result file into the failed-results directory."""
+    return _move_result_to_directory(file_path, FAILED_RESULTS_DIR, "Moved to failed", "move failed result")
 
 
 def _send_result(url: str, file_path: Path) -> bool:
@@ -183,15 +194,24 @@ def _poll_results_directory(webhook_url: str) -> None:
                 # Try to send; log errors but continue
                 if _send_result(webhook_url, file_path):
                     _archive_result(file_path)
+                else:
+                    _move_failed_result(file_path)
 
+        except KeyboardInterrupt:
+            print("Results uploader stopped.", file=sys.stderr)
+            return
         except Exception as e:
             print(
                 f"ERROR: Poll cycle failed: {e}",
                 file=sys.stderr,
             )
 
-        # Wait before next poll
-        time.sleep(POLL_INTERVAL_SECONDS)
+        try:
+            # Wait before next poll
+            time.sleep(POLL_INTERVAL_SECONDS)
+        except KeyboardInterrupt:
+            print("Results uploader stopped.", file=sys.stderr)
+            return
 
 
 def main() -> None:
