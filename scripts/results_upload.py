@@ -17,6 +17,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 
@@ -41,9 +42,11 @@ class _FlushingStream:
 
     def write(self, data: str) -> int:
         if data:
-            self._log_stream.write(data)
+            timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S.%f]")[:-3]
+            prefixed = f"{timestamp} {data}"
+            self._log_stream.write(prefixed)
             self._log_stream.flush()
-            self._console_stream.write(data)
+            self._console_stream.write(prefixed)
             self._console_stream.flush()
         return len(data)
 
