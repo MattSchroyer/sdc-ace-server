@@ -63,6 +63,21 @@ def test_poll_results_directory_moves_failed_files_to_results_failed(tmp_path, m
     assert (failed_dir / "sample.json").exists()
 
 
+def test_configure_output_logging_writes_to_log_file(tmp_path, monkeypatch):
+    module = load_module()
+
+    log_file = tmp_path / "results_upload.log"
+    monkeypatch.setattr(module, "LOG_FILE", log_file)
+
+    module._configure_output_logging()
+    try:
+        print("hello from uploader")
+    finally:
+        module._restore_output_logging()
+
+    assert "hello from uploader" in log_file.read_text(encoding="utf-8")
+
+
 def test_archive_result_logs_warning_when_move_fails(tmp_path, monkeypatch, capsys):
     module = load_module()
 

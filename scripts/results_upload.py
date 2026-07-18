@@ -24,7 +24,41 @@ POLL_INTERVAL_SECONDS = 5
 RESULTS_DIR = Path(os.environ.get("SERVER_RESULTS_PATH", "/data/results"))
 SENT_RESULTS_DIR = RESULTS_DIR.parent / "results_sent"
 FAILED_RESULTS_DIR = RESULTS_DIR.parent / "results_failed"
+LOG_FILE = Path(os.environ.get("SERVER_RESULTS_LOG_PATH", "/data/logs/results_upload.log"))
 SERVER_RESULTS_POST_URL = os.environ.get("SERVER_RESULTS_POST_URL", "").strip()
+
+_LOG_FILE_HANDLE = None
+_ORIGINAL_STDOUT = None
+_ORIGINAL_STDERR = None
+
+
+def _configure_output_logging() -> None:
+    """Redirect stdout and stderr to the configured log file."""
+    global _LOG_FILE_HANDLE, _ORIGINAL_STDOUT, _ORIGINAL_STDERR
+
+    if _LOG_FILE_HANDLE is not None:
+        return
+
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _ORIGINAL_STDOUT = sys.stdout
+    _ORIGINAL_STDERR = sys.stderr
+    _LOG_FILE_HANDLE = LOG_FILE.open("a", encoding="utf-8")
+    sys.stdout = _LOG_FILE_HANDLE
+    sys.stderr = _LOG_FILE_HANDLE
+
+
+def _restore_output_logging() -> None:
+    """Restore stdout and stderr after logging is configured."""
+    global _LOG_FILE_HANDLE
+
+    if _LOG_FILE_HANDLE is None:
+        return
+
+    sys.stdout = _ORIGINAL_STDOUT
+    sys.stderr = _ORIGINAL_STDERR
+    _LOG_FILE_HANDLE.flush()
+    _LOG_FILE_HANDLE.close()
+    _LOG_FILE_HANDLE = None
 
 
 def _move_result_to_directory(file_path: Path, destination_dir: Path, label: str, action_phrase: str) -> bool:
@@ -216,11 +250,14 @@ def _poll_results_directory(webhook_url: str) -> None:
 
 def main() -> None:
     """Main entry point."""
+    _configure_output_logging()
+
     if not SERVER_RESULTS_POST_URL:
         print(
             "WARNING: SERVER_RESULTS_POST_URL not set; results uploader is disabled.",
             file=sys.stderr,
         )
+        _restore_output_logging()
         sys.exit(0)
 
     try:
@@ -231,6 +268,8 @@ def main() -> None:
     except Exception as e:
         print(f"FATAL: {e}", file=sys.stderr)
         sys.exit(1)
+    finally:
+        _restore_output_logging()
 
 
 if __name__ == "__main__":
