@@ -72,10 +72,9 @@ def test_configure_output_logging_writes_to_log_file(tmp_path, monkeypatch):
     module._configure_output_logging()
     try:
         print("hello from uploader")
+        assert "hello from uploader" in log_file.read_text(encoding="utf-8")
     finally:
         module._restore_output_logging()
-
-    assert "hello from uploader" in log_file.read_text(encoding="utf-8")
 
 
 def test_archive_result_logs_warning_when_move_fails(tmp_path, monkeypatch, capsys):

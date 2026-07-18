@@ -32,6 +32,32 @@ _ORIGINAL_STDOUT = None
 _ORIGINAL_STDERR = None
 
 
+class _FlushingStream:
+    """A stream wrapper that mirrors output to the console and a log file."""
+
+    def __init__(self, log_stream, console_stream):
+        self._log_stream = log_stream
+        self._console_stream = console_stream
+
+    def write(self, data: str) -> int:
+        if data:
+            self._log_stream.write(data)
+            self._log_stream.flush()
+            self._console_stream.write(data)
+            self._console_stream.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        self._log_stream.flush()
+        self._console_stream.flush()
+
+    def isatty(self) -> bool:
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self._console_stream, name)
+
+
 def _configure_output_logging() -> None:
     """Redirect stdout and stderr to the configured log file."""
     global _LOG_FILE_HANDLE, _ORIGINAL_STDOUT, _ORIGINAL_STDERR
@@ -43,8 +69,8 @@ def _configure_output_logging() -> None:
     _ORIGINAL_STDOUT = sys.stdout
     _ORIGINAL_STDERR = sys.stderr
     _LOG_FILE_HANDLE = LOG_FILE.open("a", encoding="utf-8")
-    sys.stdout = _LOG_FILE_HANDLE
-    sys.stderr = _LOG_FILE_HANDLE
+    sys.stdout = _FlushingStream(_LOG_FILE_HANDLE, _ORIGINAL_STDOUT)
+    sys.stderr = _FlushingStream(_LOG_FILE_HANDLE, _ORIGINAL_STDERR)
 
 
 def _restore_output_logging() -> None:
