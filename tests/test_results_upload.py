@@ -36,3 +36,25 @@ def test_poll_results_directory_moves_uploaded_files_to_results_sent(tmp_path, m
 
     assert not result_path.exists()
     assert (sent_dir / "sample.json").exists()
+
+
+def test_archive_result_logs_warning_when_move_fails(tmp_path, monkeypatch, capsys):
+    module = load_module()
+
+    results_dir = tmp_path / "results"
+    sent_dir = tmp_path / "results_sent"
+    results_dir.mkdir()
+    result_path = results_dir / "sample.json"
+    result_path.write_text('{"status": "ok"}', encoding="utf-8")
+
+    monkeypatch.setattr(module, "SENT_RESULTS_DIR", sent_dir)
+    monkeypatch.setattr(module, "os", module.os)
+
+    def fail_replace(_src, _dst):
+        raise PermissionError("simulated move failure")
+
+    monkeypatch.setattr(module.os, "replace", fail_replace)
+
+    assert module._archive_result(result_path) is False
+    captured = capsys.readouterr()
+    assert "WARNING: Failed to archive sent result sample.json" in captured.err
